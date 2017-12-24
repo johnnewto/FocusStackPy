@@ -11,12 +11,15 @@ import threading
 
 ########################################################################33
 
-def detectFeatures(img, resiz):
+def detectFeatures(img, resiz, keypoints, descriptors):
     orb = ORB(n_keypoints=500, fast_threshold=0.05)
     img = rgb2gray(img)
     img = resize(img, (img.shape[0] * resiz, img.shape[1] * resiz), mode = 'reflect')
     orb.detect_and_extract(img)
-    return orb.keypoints, orb.descriptors
+    keypoints.append(orb.keypoints)
+    descriptors.append(orb.descriptors)
+
+    # return orb.keypoints, orb.descriptors
 
 
 def matchFeatures(keypoints1, descriptors1, keypoints2, descriptors2):
@@ -35,10 +38,26 @@ def detectAllFeatures(images, resiz):
     keypoints = []
     descriptors = []
     for n in range (0, len(images) ):
-        keypoints_, descriptors_ = detectFeatures(images[n], resiz)
-        keypoints.append(keypoints_)
-        descriptors.append(descriptors_)
-        print("   Time Elapsed = {:.3f}".format(time.time() - start))
+        detectFeatures(images[n], resiz, keypoints, descriptors)
+    print("   Time Elapsed = {:.3f}".format(time.time() - start))
+    return keypoints, descriptors
+
+def detectAllFeaturesThreaded(images, resiz):
+    print("   detecting features")
+    keypoints = []
+    descriptors = []
+    threads = []
+    for n in range (0, len(images) ):
+        t = threading.Thread(target=detectFeatures, args=(images[n], resiz, keypoints, descriptors,))
+        threads.append(t)
+
+    for t in threads:
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    print("   Time Elapsed = {:.3f}".format(time.time() - start))
     return keypoints, descriptors
 
 def matchAllFeatures(keypoints, descriptors):
@@ -53,17 +72,33 @@ def matchAllFeatures(keypoints, descriptors):
         print("   Time Elapsed = {:.3f}".format(time.time() - start))
     return tform
 
+def warpWrapper(images, n, tf):
+    images[n] = warp(images[n], tf.inverse)
+
 def warpFeatures(images, tform):
     print("   warping features")
     tf = tform[0]
     for n in range(1, len(images)):
         tf = tf + tform[n]
-        images[n] = warp(images[n], tf.inverse)
-        print("    Image save {}".format(n))
-        images[n] = np.uint8(images[n]*255.0)
-        imsave("aligned/aligned{:02d}.jpg".format(n), images[n])
-        print("   Time Elapsed = {:.3f}".format(time.time() - start))
+        # images[n] = warp(images[n], tf.inverse)
+        wrapWarp(images, n, tf)
+    print("   Time Elapsed = {:.3f}".format(time.time() - start))
 
+def warpFeaturesThreaded(images, tform):
+    print("   warping features")
+    threads = []
+    tf = tform[0]
+    for n in range(1, len(images)):
+        tf = tf + tform[n]
+        t = threading.Thread(target=warpWrapper, args=(images, n, tf,))
+        threads.append(t)
+
+    for t in threads:
+        t.start()
+
+    for t in threads:
+        t.join()
+    print("   Time Elapsed = {:.3f}".format(time.time() - start))
 
 ###################################################################################
 
@@ -87,9 +122,17 @@ if __name__ == "__main__":
     imsave("aligned/aligned{:02d}.jpg".format(n), images[n])
 
     keypoints, descriptors = detectAllFeatures(images, resiz)
+    # keypoints, descriptors = detectAllFeaturesThreaded(images, resiz)
 
     tform = matchAllFeatures(keypoints, descriptors)
 
-    warpFeatures(images, tform)
+    warpFeaturesThreaded(images, tform)
+    # warpFeatures(images, tform)
+
+    for n in range(1, len(images)):
+        print("    Image save {}".format(n))
+        images[n] = np.uint8(images[n]*255.0)
+        imsave("aligned/aligned{:02d}.jpg".format(n), images[n])
+
 
     print ("That's All Folks!")
